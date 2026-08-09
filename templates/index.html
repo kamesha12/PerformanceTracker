@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Performance Tracker - Enterprise Analytics Dashboard</title>
+  
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <!-- Custom Enterprise CSS -->
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- Plotly.js -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+</head>
+<body>
+
+  <!-- Application Header -->
+  <header class="app-header d-flex align-items-center justify-content-between">
+    <!-- Brand / Status -->
+    <div class="d-flex align-items-center gap-3">
+      <div class="brand-badge">
+        <i class="bi bi-bar-chart-line-fill"></i> FABRIC
+      </div>
+      <div class="status-badge" id="liveStatusBadge">
+        <div class="status-dot"></div> Live Sync Active
+      </div>
+    </div>
+
+    <!-- Center Title -->
+    <div class="text-center">
+      <h1 class="header-title"><i class="bi bi-speedometer2 text-primary me-2"></i>Performance Tracker</h1>
+    </div>
+
+    <!-- Top Right Actions -->
+    <div class="header-actions">
+      <!-- Add Intern Button -->
+      <button class="btn btn-enterprise-primary" data-bs-toggle="modal" data-bs-target="#addInternModal">
+        <i class="bi bi-person-plus-fill"></i> Add Intern
+      </button>
+
+      <!-- Theme Toggle -->
+      <button class="btn btn-theme-toggle" id="themeToggleBtn">
+        <i class="bi bi-moon-stars-fill" id="themeIcon"></i> <span id="themeText">Dark</span>
+      </button>
+
+      <!-- Download Options Dropdown -->
+      <div class="dropdown">
+        <button class="btn btn-download-dropdown dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-download"></i> Download
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <a class="dropdown-item" href="/download/excel" target="_blank">
+              <i class="bi bi-file-earmark-excel-fill text-success fs-5"></i> Download Excel
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item" href="/download/pdf" target="_blank">
+              <i class="bi bi-file-earmark-pdf-fill text-danger fs-5"></i> Download PDF Report
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <!-- Dashboard Layout Grid (60% Left / 40% Right) -->
+  <main class="dashboard-container">
+    <div class="row g-3">
+      
+      <!-- LEFT SECTION - Analytics Visualizations (60% width) -->
+      <section class="col-lg-7 col-xl-7">
+        
+        <!-- Row 1: Donut & Horizontal Bar -->
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="analytics-card">
+              <div class="card-title-bar">
+                <span class="card-title-text"><i class="bi bi-pie-chart-fill text-primary"></i> Onboarding / Leads Achieved</span>
+              </div>
+              <div id="donutChart" class="chart-container"></div>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="analytics-card">
+              <div class="card-title-bar">
+                <span class="card-title-text"><i class="bi bi-bar-chart-steps text-info"></i> Telecalling</span>
+              </div>
+              <div id="horizontalBarChart" class="chart-container"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 2: Line & Vertical Bar -->
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="analytics-card">
+              <div class="card-title-bar">
+                <span class="card-title-text"><i class="bi bi-graph-up text-success"></i> Physical Visits</span>
+              </div>
+              <div id="lineChart" class="chart-container"></div>
+            </div>
+          </div>
+
+          <div class="col-md-6">
+            <div class="analytics-card">
+              <div class="card-title-bar">
+                <span class="card-title-text"><i class="bi bi-bar-chart-fill text-warning"></i> Marketing Activity</span>
+              </div>
+              <div id="verticalBarChart" class="chart-container"></div>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- RIGHT SECTION - Executive Summary & Sticky Mini Table (40% width) -->
+      <section class="col-lg-5 col-xl-5">
+        
+        <!-- Executive Summary Cards Grid (8 Numeric Cards) -->
+        <div class="summary-cards-grid">
+          
+          <div class="kpi-card">
+            <i class="bi bi-people-fill kpi-icon"></i>
+            <div class="kpi-title">Total Interns</div>
+            <div class="kpi-value" id="kpiTotalInterns">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-geo-alt-fill kpi-icon text-success"></i>
+            <div class="kpi-title">Physical Visits</div>
+            <div class="kpi-value" id="kpiPhysicalVisits">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-telephone-fill kpi-icon text-info"></i>
+            <div class="kpi-title">Telecalling</div>
+            <div class="kpi-value" id="kpiTelecalling">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-calendar-week-fill kpi-icon text-warning"></i>
+            <div class="kpi-title">Weekly Visits</div>
+            <div class="kpi-value" id="kpiWeeklyVisits">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-trophy-fill kpi-icon text-primary"></i>
+            <div class="kpi-title">Leads Achieved</div>
+            <div class="kpi-value" id="kpiLeadsAchieved">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-megaphone-fill kpi-icon text-danger"></i>
+            <div class="kpi-title">Marketing Activities</div>
+            <div class="kpi-value" id="kpiMarketingActivities">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-diagram-3-fill kpi-icon text-purple"></i>
+            <div class="kpi-title">DSA / Connectors</div>
+            <div class="kpi-value" id="kpiDSAConnectors">0</div>
+          </div>
+
+          <div class="kpi-card">
+            <i class="bi bi-buildings-fill kpi-icon text-teal"></i>
+            <div class="kpi-title">Promoters / Builders</div>
+            <div class="kpi-value" id="kpiPromotersBuilders">0</div>
+          </div>
+
+        </div>
+
+        <!-- Sticky Mini Table Container -->
+        <div class="mini-table-container">
+          <div class="table-toolbar">
+            <div class="search-input-group">
+              <i class="bi bi-search"></i>
+              <input type="text" id="searchInput" class="search-input" placeholder="Search by Intern Name or Branch...">
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+              <label for="sortSelect" class="form-label mb-0 small text-nowrap">Sort By:</label>
+              <select id="sortSelect" class="sort-select">
+                <option value="">Default Order</option>
+                <option value="name">Intern Name</option>
+                <option value="physical">Physical Visits</option>
+                <option value="telecalling">Telecalling</option>
+                <option value="leads">Leads Achieved</option>
+                <option value="marketing">Marketing Activity</option>
+              </select>
+              <button id="sortOrderBtn" class="btn btn-sm btn-outline-secondary" title="Toggle Asc/Desc">
+                <i class="bi bi-sort-down" id="sortOrderIcon"></i>
+              </button>
+            </div>
+          </div>
+
+            <!-- Responsive Scrollable Table (No Horizontal Scroll) -->
+            <div class="scrollable-table-wrapper">
+              <table class="table-enterprise">
+                <thead>
+                  <tr id="tableHeaderRow">
+                    <th style="width: 45px;">#</th>
+                    <th>Intern Name</th>
+                    <th>Branch</th>
+                    <th class="text-center" style="width: 70px;">Leads</th>
+                    <th class="text-end" style="width: 80px;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="tableBody">
+                  <!-- Dynamically Populated with Hover Detail Cards -->
+                </tbody>
+              </table>
+            </div>
+        </div>
+
+      </section>
+    </div>
+  </main>
+
+  <!-- ADD INTERN MODAL -->
+  <div class="modal fade" id="addInternModal" tabindex="-1" aria-labelledby="addInternModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="addInternModalLabel"><i class="bi bi-person-plus-fill text-primary me-2"></i>Add New Intern Activity Record</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form id="addInternForm">
+          <div class="modal-body">
+            <div id="addWarningAlert" class="alert alert-warning d-none" role="alert">
+              <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="addWarningText"></span>
+            </div>
+            
+            <div class="row g-3" id="addFormFields">
+              <!-- Dynamically generated fields from Excel columns (excluding S.No.) -->
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-enterprise-primary" id="saveAddBtn">
+              <i class="bi bi-check-circle-fill"></i> Save Record
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT INTERN MODAL -->
+  <div class="modal fade" id="editInternModal" tabindex="-1" aria-labelledby="editInternModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editInternModalLabel"><i class="bi bi-pencil-square text-primary me-2"></i>Edit Intern Record</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <form id="editInternForm">
+          <input type="hidden" id="editSNoInput">
+          <div class="modal-body">
+            <div class="row g-3" id="editFormFields">
+              <!-- Dynamically generated fields for editing -->
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-enterprise-primary" id="saveEditBtn">
+              <i class="bi bi-save-fill"></i> Update Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER FOR LIVE NOTIFICATIONS -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
+    <div id="liveToast" class="toast align-items-center text-bg-primary border-0" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="d-flex">
+        <div class="toast-body" id="toastMessage">
+          Real-time updates synced.
+        </div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Application Main JS -->
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
