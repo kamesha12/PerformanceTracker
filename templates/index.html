@@ -89,7 +89,7 @@
               <div class="card-title-bar">
                 <span class="card-title-text"><i class="bi bi-bar-chart-steps text-info"></i> Telecalling</span>
               </div>
-              <div id="horizontalBarChart" class="chart-container"></div>
+              <div id="barChartTelecalling" class="chart-container"></div>
             </div>
           </div>
         </div>
@@ -101,7 +101,7 @@
               <div class="card-title-bar">
                 <span class="card-title-text"><i class="bi bi-graph-up text-success"></i> Physical Visits</span>
               </div>
-              <div id="lineChart" class="chart-container"></div>
+              <div id="lineChartPhysical" class="chart-container"></div>
             </div>
           </div>
 
@@ -110,7 +110,7 @@
               <div class="card-title-bar">
                 <span class="card-title-text"><i class="bi bi-bar-chart-fill text-warning"></i> Marketing Activity</span>
               </div>
-              <div id="verticalBarChart" class="chart-container"></div>
+              <div id="barChartMarketing" class="chart-container"></div>
             </div>
           </div>
         </div>
@@ -194,26 +194,68 @@
               <button id="sortOrderBtn" class="btn btn-sm btn-outline-secondary" title="Toggle Asc/Desc">
                 <i class="bi bi-sort-down" id="sortOrderIcon"></i>
               </button>
+
+              <!-- COLUMN CONFIGURATOR DROPDOWN -->
+              <div class="dropdown">
+                <button class="btn btn-sm btn-outline-primary dropdown-toggle d-flex align-items-center gap-1" type="button" id="columnConfigDropdown" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false">
+                  <i class="bi bi-gear-fill"></i> Columns
+                </button>
+                <div class="dropdown-menu dropdown-menu-end p-3 shadow" style="min-width: 220px; max-height: 350px; overflow-y: auto;" aria-labelledby="columnConfigDropdown" id="columnConfigMenu">
+                  <h6 class="dropdown-header px-0 text-uppercase fw-bold border-bottom pb-2 mb-2">Display Columns</h6>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_sno" value="S.No." checked><label class="form-check-label small" for="col_sno"># S.No.</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_name" value="Intern Name" checked disabled><label class="form-check-label small" for="col_name">Intern Name</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_branch" value="Branch" checked><label class="form-check-label small" for="col_branch">Branch</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_physical" value="Physical Visits" checked><label class="form-check-label small" for="col_physical">Physical Visits</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_tele" value="Telecalling" checked><label class="form-check-label small" for="col_tele">Telecalling</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_dsa" value="DSA/Connectors" checked><label class="form-check-label small" for="col_dsa">DSA / Connectors</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_promoters" value="Promoters/Builders" checked><label class="form-check-label small" for="col_promoters">Promoters / Builders</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_weekly" value="Weekly Visits" checked><label class="form-check-label small" for="col_weekly">Weekly Visits</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_leads" value="Leads Achieved" checked><label class="form-check-label small" for="col_leads">Leads Achieved</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_marketing" value="Marketing Activity" checked><label class="form-check-label small" for="col_marketing">Marketing Activity</label></div>
+                  <div class="form-check mb-1"><input class="form-check-input col-toggle" type="checkbox" id="col_actions" value="Actions" checked disabled><label class="form-check-label small" for="col_actions">Actions</label></div>
+                </div>
+              </div>
             </div>
           </div>
 
-            <!-- Responsive Scrollable Table (No Horizontal Scroll) -->
-            <div class="scrollable-table-wrapper">
-              <table class="table-enterprise">
-                <thead>
-                  <tr id="tableHeaderRow">
-                    <th style="width: 45px;">#</th>
-                    <th>Intern Name</th>
-                    <th>Branch</th>
-                    <th class="text-center" style="width: 70px;">Leads</th>
-                    <th class="text-end" style="width: 80px;">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="tableBody">
-                  <!-- Dynamically Populated with Hover Detail Cards -->
-                </tbody>
-              </table>
-            </div>
+          <!-- Responsive Scrollable Table -->
+          <div class="scrollable-table-wrapper">
+            <table class="table-enterprise">
+              <thead>
+                <tr id="tableHeaderRow">
+                  <th class="text-center" style="width: 50px;">#</th>
+                  <th class="text-start" style="font-size: 0.88rem;">Intern Name</th>
+                  <th class="text-start" style="font-size: 0.88rem;">Branch (Place)</th>
+                  <th class="text-center" style="width: 100px; font-size: 0.88rem;">Leads</th>
+                  <th class="text-end" style="width: 90px; font-size: 0.88rem;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody">
+                {% if records %}
+                  {% for r in records %}
+                    <tr data-sno="{{ r['S.No.'] }}" class="intern-row">
+                      <td class="text-center fw-bold text-muted" style="width: 50px;">{{ r['S.No.'] }}</td>
+                      <td class="text-start intern-name-cell" title="{{ r['Intern Name'] }}">{{ r['Intern Name'] }}</td>
+                      <td class="text-start branch-badge-cell" title="{{ r['Branch'] }}"><span class="badge bg-light text-dark border px-2.5 py-1.5">{{ r['Branch'] }}</span></td>
+                      <td class="text-center fw-bold fs-6 text-primary">{{ r['Leads Achieved'] }}</td>
+                      <td class="text-end text-nowrap actions-cell" style="width: 90px;" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();">
+                        <div class="d-inline-flex align-items-center justify-content-end gap-1">
+                          <button class="btn-action-edit" onclick="event.stopPropagation(); openEditModal({{ r['S.No.'] }})" title="Edit Record">
+                            <i class="bi bi-pencil-square"></i>
+                          </button>
+                          <button class="btn-action-delete" onclick="event.stopPropagation(); confirmDelete({{ r['S.No.'] }})" title="Delete Record">
+                            <i class="bi bi-trash-fill"></i>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                {% else %}
+                  <tr><td colspan="5" class="text-center text-muted py-4">No matching records found.</td></tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
         </div>
 
       </section>
@@ -275,6 +317,8 @@
     </div>
   </div>
 
+
+
   <!-- TOAST CONTAINER FOR LIVE NOTIFICATIONS -->
   <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100;">
     <div id="liveToast" class="toast align-items-center text-bg-primary border-0" role="alert" aria-live="assertive" aria-atomic="true">
@@ -289,7 +333,7 @@
 
   <!-- Bootstrap 5 JS Bundle -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-  <!-- Application Main JS -->
-  <script src="/static/js/app.js"></script>
+  <!-- Application Main JS with Cache Busting -->
+  <script src="/static/js/app.js?v=3.0"></script>
 </body>
 </html>

@@ -9,7 +9,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routes import router
 from websocket import manager
-from excel_service import init_excel_if_missing, get_file_mtime, EXCEL_PATH
 from dashboard_service import get_dashboard_payload
 
 # 1. Setup Application Logging
@@ -27,46 +26,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("app_logger")
 
-# 2. File Watcher Background Task
-async def excel_file_watcher():
-    """Background loop watching for manual external edits to the Excel database."""
-    last_mtime = get_file_mtime()
-    logger.info("Excel file watcher started monitoring: %s (initial mtime: %f)", EXCEL_PATH, last_mtime)
-    
-    while True:
-        try:
-            await asyncio.sleep(1.5)  # Check file modification timestamp every 1.5 seconds
-            current_mtime = get_file_mtime()
-            if current_mtime > last_mtime:
-                logger.info("External modification detected on Excel file! Reloading data & broadcasting update...")
-                last_mtime = current_mtime
-                
-                # Fetch fresh aggregated payload
-                payload = get_dashboard_payload()
-                
-                # Broadcast live update event to all connected WebSocket clients
-                await manager.broadcast({
-                    "event": "excel_updated",
-                    "message": "Excel file was modified externally. Dashboard refreshed.",
-                    "data": payload
-                })
-        except asyncio.CancelledError:
-            logger.info("Excel watcher task stopped.")
-            break
-        except Exception as e:
-            logger.error("Error in excel_file_watcher loop: %s", str(e))
+from db_service import init_db, get_all_records
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup tasks
-    logger.info("Initializing Enterprise Performance Tracker Dashboard...")
-    init_excel_if_missing()
-    
-    # Start background file watcher
-    watcher_task = asyncio.create_task(excel_file_watcher())
+    logger.info("Initializing Enterprise Performance Tracker Dashboard (Microsoft SQL Server Engine)...")
+    asyncio.create_task(asyncio.to_thread(init_db))
     yield
-    # Shutdown tasks
-    watcher_task.cancel()
     logger.info("Application shutdown complete.")
 
 app = FastAPI(
@@ -97,8 +64,17 @@ from fastapi.responses import Response
 
 @app.get("/", summary="Render Dashboard UI")
 def render_index(request: Request):
-    """Renders the main enterprise dashboard HTML page."""
-    return templates.TemplateResponse(request=request, name="index.html")
+    """Renders the main enterprise dashboard HTML page with pre-populated SQL Server data."""
+    data = get_dashboard_payload()
+    return templates.TemplateResponse(
+        request=request, 
+        name="index.html", 
+        context={
+            "records": data.get("records", []), 
+            "columns": data.get("columns", []),
+            "summary": data.get("summary", {})
+        }
+    )
 
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon():

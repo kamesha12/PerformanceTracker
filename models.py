@@ -42,3 +42,10 @@ class DashboardResponse(BaseModel):
     records: List[Dict[str, Any]]
     columns: List[str]
     last_updated: str
+
+class BulkDeleteRequest(BaseModel):
+    s_nos: List[int]
+
+class BulkUpdateRequest(BaseModel):
+    s_nos: List[int]
+    update_data: Dict[str, Any]

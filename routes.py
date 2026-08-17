@@ -3,12 +3,12 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import FileResponse, StreamingResponse
 
-from excel_service import (
-    read_excel_data,
-    add_intern_record,
-    update_intern_record,
-    delete_intern_record,
-    EXCEL_PATH
+from db_service import (
+    get_all_records,
+    db_add_record,
+    db_update_record,
+    db_delete_record,
+    get_excel_bytes
 )
 from dashboard_service import get_dashboard_payload
 from pdf_service import generate_pdf_report
@@ -17,12 +17,12 @@ from websocket import manager
 logger = logging.getLogger("app_logger")
 router = APIRouter()
 
-@router.get("/interns", summary="Retrieve all intern records directly from Excel")
+@router.get("/interns", summary="Retrieve all intern records directly from database")
 def get_interns():
-    """Returns all records and dynamic dynamic schema column list from Excel."""
+    """Returns all records and dynamic schema column list from database."""
     try:
-        records, columns = read_excel_data()
-        return {"status": "success", "records": records, "columns": columns}
+        data = get_all_records()
+        return {"status": "success", "records": data.get("records", []), "columns": data.get("columns", [])}
     except Exception as e:
         logger.error("API Error in /interns: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -41,20 +41,21 @@ def get_dashboard(
         logger.error("API Error in /dashboard: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/intern", summary="Add a new intern record to Excel")
+@router.post("/intern", summary="Add a new intern record to SQL Server")
 async def create_intern(payload: Dict[str, Any]):
-    """Inserts a new intern into Excel and broadcasts real-time WebSocket update."""
+    """Inserts a new intern into SQL Server and broadcasts real-time WebSocket update."""
     try:
         if not payload.get("Intern Name"):
             raise HTTPException(status_code=400, detail="Intern Name is required.")
 
-        record = add_intern_record(payload)
+        record = db_add_record(payload)
+        intern_name = payload.get("Intern Name", "") if isinstance(payload, dict) else ""
         
         # Broadcast real-time update to all connected WebSocket clients
         dashboard_data = get_dashboard_payload()
         await manager.broadcast({
             "event": "excel_updated",
-            "message": f"Intern '{record.get('Intern Name')}' added successfully.",
+            "message": f"Intern '{intern_name}' added successfully.",
             "data": dashboard_data
         })
         
@@ -65,11 +66,11 @@ async def create_intern(payload: Dict[str, Any]):
         logger.error("API Error in POST /intern: %s", str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/intern/{s_no}", summary="Update an existing intern record in Excel")
+@router.put("/intern/{s_no}", summary="Update an existing intern record in database")
 async def update_intern(s_no: int, payload: Dict[str, Any]):
     """Updates an existing intern record by S.No. and broadcasts WebSocket update."""
     try:
-        updated = update_intern_record(s_no, payload)
+        updated = db_update_record(s_no, payload)
         
         # Broadcast update to all clients
         dashboard_data = get_dashboard_payload()
@@ -86,11 +87,11 @@ async def update_intern(s_no: int, payload: Dict[str, Any]):
         logger.error("API Error in PUT /intern/%d: %s", s_no, str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/intern/{s_no}", summary="Delete an intern record from Excel")
+@router.delete("/intern/{s_no}", summary="Delete an intern record from database")
 async def delete_intern(s_no: int):
     """Deletes an intern record by S.No. and broadcasts WebSocket update."""
     try:
-        delete_intern_record(s_no)
+        db_delete_record(s_no)
         
         dashboard_data = get_dashboard_payload()
         await manager.broadcast({
@@ -106,14 +107,57 @@ async def delete_intern(s_no: int):
         logger.error("API Error in DELETE /intern/%d: %s", s_no, str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/download/excel", summary="Download the raw master Excel database")
-def download_excel():
-    """Serves the latest Excel file for download."""
+from models import BulkDeleteRequest, BulkUpdateRequest
+from db_service import db_bulk_delete_records, db_bulk_update_records
+
+@router.post("/interns/bulk-delete", summary="Bulk delete multiple intern records from database")
+async def bulk_delete_interns(req: BulkDeleteRequest):
+    """Bulk deletes selected intern records and broadcasts WebSocket update."""
     try:
-        return FileResponse(
-            path=EXCEL_PATH,
-            filename="Intern Activity Sheet.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        db_bulk_delete_records(req.s_nos)
+        
+        dashboard_data = get_dashboard_payload()
+        await manager.broadcast({
+            "event": "excel_updated",
+            "message": f"{len(req.s_nos)} intern records deleted successfully.",
+            "data": dashboard_data
+        })
+        
+        return {"status": "success", "message": f"{len(req.s_nos)} records deleted."}
+    except Exception as e:
+        logger.error("API Error in POST /interns/bulk-delete: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/interns/bulk-update", summary="Bulk update multiple intern records in database")
+async def bulk_update_interns(req: BulkUpdateRequest):
+    """Bulk updates specified fields for selected interns and broadcasts WebSocket update."""
+    try:
+        db_bulk_update_records(req.s_nos, req.update_data)
+        
+        dashboard_data = get_dashboard_payload()
+        await manager.broadcast({
+            "event": "excel_updated",
+            "message": f"{len(req.s_nos)} intern records updated successfully.",
+            "data": dashboard_data
+        })
+        
+        return {"status": "success", "message": f"{len(req.s_nos)} records updated."}
+    except Exception as e:
+        logger.error("API Error in POST /interns/bulk-update: %s", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/download/excel", summary="Download the Excel database exported from SQL Server")
+def download_excel():
+    """Generates and serves an in-memory Excel spreadsheet directly from SQL Server."""
+    try:
+        excel_buffer = get_excel_bytes()
+        excel_bytes = excel_buffer.getvalue() if hasattr(excel_buffer, "getvalue") else excel_buffer
+        return Response(
+            content=excel_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=Intern_Activity_Sheet.xlsx"
+            }
         )
     except Exception as e:
         logger.error("API Error in /download/excel: %s", str(e))
@@ -130,8 +174,8 @@ def download_pdf():
         
         pdf_bytes = generate_pdf_report(records, summary, columns)
         
-        return StreamingResponse(
-            content=iter([pdf_bytes]),
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
             headers={
                 "Content-Disposition": "attachment; filename=Enterprise_Performance_Tracker_Report.pdf"

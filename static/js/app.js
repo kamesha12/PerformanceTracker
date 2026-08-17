@@ -1,146 +1,214 @@
-/* ==========================================================================
-   PERFORMANCE TRACKER - ENTERPRISE ANALYTICS APPLICATION
-   Client JavaScript: WebSockets, Plotly Charts, Dynamic Filtering & Modals
-   ========================================================================== */
+/* Enterprise Performance Tracker Dashboard JS */
 
-let currentTheme = localStorage.getItem("perf_tracker_theme") || "light";
+// Global State
+let ws = null;
+let currentTheme = localStorage.getItem("app_theme") || "dark";
 let currentDashboardData = null;
 let currentSortBy = "";
 let currentSortOrder = "asc";
 let searchDebounceTimer = null;
-let websocket = null;
+let hoverCard = null;
 
-// --- Colors for Plotly Charts (Light & Dark Palettes) ---
+// Always clear old cached column settings if present
+localStorage.removeItem("visible_columns");
+
+// Default Visible Columns (Clean 5-Column View for Max Spacing & Typography)
+const defaultColumns = ["S.No.", "Intern Name", "Branch", "Leads Achieved", "Actions"];
+let visibleColumns = ["S.No.", "Intern Name", "Branch", "Leads Achieved", "Actions"];
+
+// Color Palettes for Light and Dark Modes
 const chartPalettes = {
-  light: {
-    paperBg: 'rgba(0,0,0,0)',
-    plotBg: 'rgba(0,0,0,0)',
-    textColor: '#1E293B',
-    gridColor: '#E2E8F0',
-    primaryColors: ['#0078D4', '#00BCF2', '#107C41', '#FFB900', '#D13438', '#881798', '#E3008C', '#008272'],
-    barColor: '#0078D4',
-    lineColor: '#107C41',
-    vBarColor: '#00BCF2'
-  },
   dark: {
-    paperBg: 'rgba(0,0,0,0)',
-    plotBg: 'rgba(0,0,0,0)',
-    textColor: '#F8FAFC',
-    gridColor: '#26334D',
-    primaryColors: ['#38BDF8', '#818CF8', '#34D399', '#FBBF24', '#F87171', '#C084FC', '#F472B6', '#2DD4BF'],
-    barColor: '#38BDF8',
-    lineColor: '#34D399',
-    vBarColor: '#818CF8'
+    paperBg: '#1e293b',
+    plotBg: '#1e293b',
+    fontColor: '#94a3b8',
+    gridColor: '#334155',
+    barColors: ['#0078d4', '#0284c7', '#06b6d4', '#0ea5e9', '#38bdf8', '#60a5fa'],
+    primaryColors: ['#0078d4', '#107c41', '#d13438', '#ffb900', '#881798', '#00cc6a', '#e3008c']
+  },
+  light: {
+    paperBg: '#ffffff',
+    plotBg: '#ffffff',
+    fontColor: '#475569',
+    gridColor: '#f1f5f9',
+    barColors: ['#0078d4', '#0284c7', '#06b6d4', '#0ea5e9', '#38bdf8', '#60a5fa'],
+    primaryColors: ['#0078d4', '#107c41', '#d13438', '#ffb900', '#881798', '#00cc6a', '#e3008c']
   }
 };
 
+// Initialize Application on DOM Ready
 document.addEventListener("DOMContentLoaded", () => {
+  console.log("DOM loaded. Initializing application...");
   initTheme();
+  initColumnConfigurator();
   initWebSocket();
-  initEventListeners();
   fetchDashboardData();
+  initEventListeners();
 });
 
 // --- Theme Management ---
 function initTheme() {
   document.documentElement.setAttribute("data-theme", currentTheme);
-  updateThemeUI();
+  updateThemeIcon();
 
-  const themeBtn = document.getElementById("themeToggleBtn");
-  if (themeBtn) {
-    themeBtn.addEventListener("click", () => {
-      currentTheme = currentTheme === "light" ? "dark" : "light";
+  const toggleBtn = document.getElementById("themeToggleBtn");
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", () => {
+      currentTheme = currentTheme === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", currentTheme);
-      localStorage.setItem("perf_tracker_theme", currentTheme);
-      updateThemeUI();
-      if (currentDashboardData) {
+      localStorage.setItem("app_theme", currentTheme);
+      updateThemeIcon();
+
+      if (currentDashboardData && currentDashboardData.charts) {
         renderCharts(currentDashboardData.charts);
       }
     });
   }
 }
 
-function updateThemeUI() {
+function updateThemeIcon() {
   const icon = document.getElementById("themeIcon");
   const text = document.getElementById("themeText");
-  if (currentTheme === "dark") {
-    if (icon) icon.className = "bi bi-sun-fill text-warning";
-    if (text) text.textContent = "Light";
-  } else {
-    if (icon) icon.className = "bi bi-moon-stars-fill";
-    if (text) text.textContent = "Dark";
+  if (icon && text) {
+    if (currentTheme === "dark") {
+      icon.className = "bi bi-sun-fill text-warning";
+      text.textContent = "Light Mode";
+    } else {
+      icon.className = "bi bi-moon-stars-fill text-primary";
+      text.textContent = "Dark Mode";
+    }
   }
 }
 
-// --- WebSocket Live Connection ---
+// --- Column Configurator Initialization ---
+function initColumnConfigurator() {
+  const menu = document.getElementById("columnConfigMenu");
+  if (!menu) return;
+
+  const colCheckboxes = menu.querySelectorAll(".col-toggle");
+  colCheckboxes.forEach(cb => {
+    const colVal = cb.value;
+    cb.checked = visibleColumns.includes(colVal);
+
+    cb.addEventListener("change", () => {
+      const allCols = [
+        "S.No.", "Intern Name", "Branch", "Physical Visits",
+        "Telecalling", "DSA/Connectors", "Promoters/Builders", "Weekly Visits",
+        "Leads Achieved", "Marketing Activity", "Actions"
+      ];
+
+      const newVisible = [];
+      allCols.forEach(col => {
+        const el = menu.querySelector(`input[value="${col}"]`);
+        if (el && el.checked) {
+          newVisible.push(col);
+        }
+      });
+
+      visibleColumns = newVisible.length > 0 ? newVisible : [...defaultColumns];
+      if (currentDashboardData) {
+        renderTable(currentDashboardData.records, currentDashboardData.columns);
+      }
+    });
+  });
+}
+
+// --- WebSocket Real-Time Connection ---
 function initWebSocket() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-  websocket = new WebSocket(wsUrl);
+  ws = new WebSocket(wsUrl);
 
-  websocket.onopen = () => {
-    console.log("Connected to Performance Tracker WebSocket");
-    const badge = document.getElementById("liveStatusBadge");
-    if (badge) {
-      badge.innerHTML = `<div class="status-dot"></div> Live Sync Active`;
-      badge.style.color = "var(--accent-success)";
-    }
+  ws.onopen = () => {
+    console.log("WebSocket connected cleanly to server.");
   };
 
-  websocket.onmessage = (event) => {
+  ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      if (msg.event === "excel_updated" || msg.event === "connected") {
-        if (msg.data) {
-          currentDashboardData = msg.data;
-          updateUI(msg.data);
-        }
-        if (msg.message && msg.event === "excel_updated") {
-          showToast(msg.message);
-        }
+      console.log("WebSocket message received:", msg.event);
+
+      if (msg.event === "excel_updated" && msg.data) {
+        currentDashboardData = msg.data;
+        updateUI(msg.data);
+        showToast(msg.message || "Real-time updates synchronized.");
       }
-    } catch (e) {
-      console.error("Error processing WebSocket payload:", e);
+    } catch (err) {
+      console.error("Error processing WebSocket message:", err);
     }
   };
 
-  websocket.onclose = () => {
+  ws.onclose = () => {
     console.warn("WebSocket closed. Attempting reconnect in 3s...");
-    const badge = document.getElementById("liveStatusBadge");
-    if (badge) {
-      badge.innerHTML = `<i class="bi bi-exclamation-circle-fill text-warning me-1"></i> Reconnecting...`;
-    }
     setTimeout(initWebSocket, 3000);
+  };
+
+  ws.onerror = (err) => {
+    console.error("WebSocket error:", err);
   };
 }
 
-// --- Fetch Dashboard API Fallback ---
+// --- Fetch Dashboard Payload via REST API ---
 async function fetchDashboardData() {
-  const search = document.getElementById("searchInput")?.value || "";
-  const url = `/dashboard?search=${encodeURIComponent(search)}&sort_by=${currentSortBy}&sort_order=${currentSortOrder}`;
+  const searchInput = document.getElementById("searchInput");
+  const searchQuery = searchInput ? searchInput.value : "";
+
+  const params = new URLSearchParams({
+    search: searchQuery,
+    sort_by: currentSortBy,
+    sort_order: currentSortOrder
+  });
+
   try {
-    const res = await fetch(url);
+    const res = await fetch(`/dashboard?${params.toString()}`);
     const result = await res.json();
+
     if (result.status === "success" && result.data) {
       currentDashboardData = result.data;
       updateUI(result.data);
+    } else {
+      console.error("API returned unsuccessful result:", result);
     }
   } catch (err) {
-    console.error("Failed to fetch dashboard data:", err);
+    console.error("Error fetching dashboard data:", err);
   }
 }
 
-// --- Global UI Update Handler ---
+// --- Update UI Components ---
 function updateUI(data) {
-  updateSummaryCards(data.summary);
-  renderCharts(data.charts);
-  renderTable(data.records, data.columns);
-  populateModalForms(data.columns);
+  console.log("updateUI received data:", data);
+  if (!data) return;
+
+  try {
+    renderSummaryCards(data.summary);
+  } catch (e) {
+    console.error("Error in renderSummaryCards:", e);
+  }
+
+  try {
+    renderCharts(data.charts);
+  } catch (e) {
+    console.error("Error in renderCharts:", e);
+  }
+
+  try {
+    renderTable(data.records, data.columns);
+  } catch (e) {
+    console.error("Error in renderTable:", e);
+  }
+
+  try {
+    populateModalForms(data.columns);
+  } catch (e) {
+    console.error("Error in populateModalForms:", e);
+  }
 }
 
-// --- Number Counter Animation for Summary Cards ---
-function updateSummaryCards(summary) {
+// --- Render Executive Summary KPI Cards ---
+function renderSummaryCards(summary) {
+  if (!summary) return;
+
   animateCounter("kpiTotalInterns", summary.total_interns || 0);
   animateCounter("kpiPhysicalVisits", summary.total_physical_visits || 0);
   animateCounter("kpiTelecalling", summary.total_telecalling || 0);
@@ -167,7 +235,6 @@ function animateCounter(elementId, targetValue) {
   function updateStep(currentTime) {
     const elapsed = currentTime - startTime;
     const progress = Math.min(elapsed / duration, 1);
-    // Ease-out quad formula
     const easeProgress = 1 - (1 - progress) * (1 - progress);
     const currentValue = Math.floor(startValue + (targetValue - startValue) * easeProgress);
 
@@ -185,150 +252,165 @@ function animateCounter(elementId, targetValue) {
 
 // --- Render Plotly Visualizations ---
 function renderCharts(charts) {
-  const p = chartPalettes[currentTheme];
+  if (!charts) {
+    console.warn("renderCharts: No charts data received.");
+    return;
+  }
+
+  if (typeof Plotly === "undefined") {
+    console.error("Plotly library is not defined!");
+    return;
+  }
+
+  const p = chartPalettes[currentTheme] || chartPalettes.dark;
 
   const plotlyConfig = {
     responsive: true,
     displayModeBar: 'hover',
     displaylogo: false,
-    scrollZoom: true,
-    modeBarButtonsToRemove: ['select2d', 'lasso2d']
+    scrollZoom: false
   };
 
-  // 1. DONUT CHART: Onboarding / Leads Achieved
-  if (charts.donut_leads && charts.donut_leads.length > 0) {
-    const labels = charts.donut_leads.map(d => d.labels);
-    const values = charts.donut_leads.map(d => d.values);
-    const customData = charts.donut_leads.map(d => d.percentage);
+  // 1. Donut Chart: Onboarding / Leads Achieved
+  try {
+    const donutEl = document.getElementById('donutChart');
+    if (donutEl && charts.donut_leads && charts.donut_leads.length > 0) {
+      const labels = charts.donut_leads.map(d => d.labels || d.name || d.names || "N/A");
+      const values = charts.donut_leads.map(d => d.values !== undefined ? d.values : d.value || 0);
+      const customData = charts.donut_leads.map(d => d.percentage || 0);
 
-    const donutTrace = {
-      labels: labels,
-      values: values,
-      customdata: customData,
-      type: 'pie',
-      hole: 0.55,
-      marker: { colors: p.primaryColors },
-      textinfo: 'label+percent',
-      textposition: 'inside',
-      insidetextorientation: 'radial',
-      hovertemplate: '<b>%{label}</b><br>Leads: %{value}<br>Share: %{customdata}%<extra></extra>'
-    };
+      const donutTrace = {
+        labels: labels,
+        values: values,
+        customdata: customData,
+        type: 'pie',
+        hole: 0.55,
+        marker: { colors: p.primaryColors },
+        textinfo: 'label+percent',
+        textposition: 'inside',
+        insidetextorientation: 'radial',
+        hovertemplate: '<b>%{label}</b><br>Leads: %{value}<br>Share: %{customdata}%<extra></extra>'
+      };
 
-    const donutLayout = {
-      margin: { t: 10, b: 10, l: 10, r: 10 },
-      paper_bgcolor: p.paperBg,
-      plot_bgcolor: p.plotBg,
-      font: { color: p.textColor, family: 'Outfit, sans-serif' },
-      showlegend: false,
-      dragmode: false,
-      hovermode: 'closest'
-    };
+      const donutLayout = {
+        margin: { t: 20, b: 20, l: 20, r: 20 },
+        paper_bgcolor: p.paperBg,
+        plot_bgcolor: p.plotBg,
+        font: { color: p.fontColor, family: 'Segoe UI, system-ui, sans-serif' },
+        showlegend: true,
+        legend: { orientation: 'h', y: -0.15 },
+        dragmode: false
+      };
 
-    Plotly.react('donutChart', [donutTrace], donutLayout, plotlyConfig);
-  } else {
-    Plotly.purge('donutChart');
+      Plotly.react('donutChart', [donutTrace], donutLayout, plotlyConfig);
+    }
+  } catch (err) {
+    console.error("Error rendering donutChart:", err);
   }
 
-  // 2. HORIZONTAL BAR CHART: Telecalling
-  if (charts.bar_telecalling && charts.bar_telecalling.length > 0) {
-    const names = charts.bar_telecalling.map(d => d.name).reverse();
-    const counts = charts.bar_telecalling.map(d => d.count).reverse();
+  // 2. Horizontal Bar Chart: Telecalling
+  try {
+    const teleEl = document.getElementById('barChartTelecalling');
+    if (teleEl && charts.bar_telecalling && charts.bar_telecalling.length > 0) {
+      const names = charts.bar_telecalling.map(d => d.names || d.name || "N/A");
+      const values = charts.bar_telecalling.map(d => d.values !== undefined ? d.values : d.count || d.value || 0);
 
-    const hBarTrace = {
-      x: counts,
-      y: names,
-      type: 'bar',
-      orientation: 'h',
-      marker: {
-        color: p.barColor,
-        cornerradius: 6
-      },
-      hovertemplate: '<b>%{y}</b><br>Telecalling: %{x}<extra></extra>'
-    };
+      const barTrace = {
+        y: names,
+        x: values,
+        type: 'bar',
+        orientation: 'h',
+        marker: {
+          color: p.barColors[0],
+          line: { color: p.barColors[1], width: 1 }
+        },
+        hovertemplate: '<b>%{y}</b><br>Telecalls: %{x}<extra></extra>'
+      };
 
-    const hBarLayout = {
-      margin: { t: 10, b: 30, l: 110, r: 20 },
-      paper_bgcolor: p.paperBg,
-      plot_bgcolor: p.plotBg,
-      font: { color: p.textColor, family: 'Outfit, sans-serif' },
-      xaxis: { gridcolor: p.gridColor, zerolinecolor: p.gridColor },
-      yaxis: { gridcolor: p.gridColor },
-      dragmode: false,
-      hovermode: 'closest'
-    };
+      const barLayout = {
+        margin: { t: 20, b: 35, l: 110, r: 20 },
+        paper_bgcolor: p.paperBg,
+        plot_bgcolor: p.plotBg,
+        font: { color: p.fontColor, family: 'Segoe UI, system-ui, sans-serif' },
+        xaxis: { gridcolor: p.gridColor, title: 'Total Calls' },
+        yaxis: { gridcolor: p.gridColor, autorange: 'reversed' },
+        dragmode: false
+      };
 
-    Plotly.react('horizontalBarChart', [hBarTrace], hBarLayout, plotlyConfig);
-  } else {
-    Plotly.purge('horizontalBarChart');
+      Plotly.react('barChartTelecalling', [barTrace], barLayout, plotlyConfig);
+    }
+  } catch (err) {
+    console.error("Error rendering barChartTelecalling:", err);
   }
 
-  // 3. LINE CHART: Physical Visits
-  if (charts.line_physical_visits && charts.line_physical_visits.length > 0) {
-    const names = charts.line_physical_visits.map(d => d.name);
-    const visits = charts.line_physical_visits.map(d => d.visits);
+  // 3. Line Chart: Physical Visits
+  try {
+    const physEl = document.getElementById('lineChartPhysical');
+    if (physEl && charts.line_physical_visits && charts.line_physical_visits.length > 0) {
+      const names = charts.line_physical_visits.map(d => d.names || d.name || "N/A");
+      const values = charts.line_physical_visits.map(d => d.values !== undefined ? d.values : d.visits || d.value || 0);
 
-    const lineTrace = {
-      x: names,
-      y: visits,
-      type: 'scatter',
-      mode: 'lines+markers',
-      line: { shape: 'spline', color: p.lineColor, width: 3 },
-      marker: { size: 8, color: p.lineColor, symbol: 'circle' },
-      hovertemplate: '<b>%{x}</b><br>Physical Visits: %{y}<extra></extra>'
-    };
+      const lineTrace = {
+        x: names,
+        y: values,
+        type: 'scatter',
+        mode: 'lines+markers',
+        line: { color: p.primaryColors[1], width: 3, shape: 'spline' },
+        marker: { size: 8, color: p.primaryColors[1] },
+        hovertemplate: '<b>%{x}</b><br>Physical Visits: %{y}<extra></extra>'
+      };
 
-    const lineLayout = {
-      margin: { t: 10, b: 40, l: 40, r: 20 },
-      paper_bgcolor: p.paperBg,
-      plot_bgcolor: p.plotBg,
-      font: { color: p.textColor, family: 'Outfit, sans-serif' },
-      xaxis: { gridcolor: p.gridColor },
-      yaxis: { gridcolor: p.gridColor, zerolinecolor: p.gridColor },
-      dragmode: false,
-      hovermode: 'closest'
-    };
+      const lineLayout = {
+        margin: { t: 20, b: 45, l: 40, r: 20 },
+        paper_bgcolor: p.paperBg,
+        plot_bgcolor: p.plotBg,
+        font: { color: p.fontColor, family: 'Segoe UI, system-ui, sans-serif' },
+        xaxis: { gridcolor: p.gridColor, tickangle: -20 },
+        yaxis: { gridcolor: p.gridColor, title: 'Visits' },
+        dragmode: false
+      };
 
-    Plotly.react('lineChart', [lineTrace], lineLayout, plotlyConfig);
-  } else {
-    Plotly.purge('lineChart');
+      Plotly.react('lineChartPhysical', [lineTrace], lineLayout, plotlyConfig);
+    }
+  } catch (err) {
+    console.error("Error rendering lineChartPhysical:", err);
   }
 
-  // 4. VERTICAL BAR CHART: Marketing Activity
-  if (charts.bar_marketing && charts.bar_marketing.length > 0) {
-    const names = charts.bar_marketing.map(d => d.name);
-    const counts = charts.bar_marketing.map(d => d.count);
+  // 4. Vertical Bar Chart: Marketing Activity
+  try {
+    const mktEl = document.getElementById('barChartMarketing');
+    if (mktEl && charts.bar_marketing && charts.bar_marketing.length > 0) {
+      const names = charts.bar_marketing.map(d => d.names || d.name || "N/A");
+      const values = charts.bar_marketing.map(d => d.values !== undefined ? d.values : d.count || d.value || 0);
 
-    const vBarTrace = {
-      x: names,
-      y: counts,
-      type: 'bar',
-      marker: {
-        color: p.vBarColor,
-        cornerradius: 6
-      },
-      hovertemplate: '<b>%{x}</b><br>Marketing Activity: %{y}<extra></extra>'
-    };
+      const vertBarTrace = {
+        x: names,
+        y: values,
+        type: 'bar',
+        marker: {
+          color: p.primaryColors[2]
+        },
+        hovertemplate: '<b>%{x}</b><br>Marketing Activity: %{y}<extra></extra>'
+      };
 
-    const vBarLayout = {
-      margin: { t: 10, b: 40, l: 40, r: 20 },
-      paper_bgcolor: p.paperBg,
-      plot_bgcolor: p.plotBg,
-      font: { color: p.textColor, family: 'Outfit, sans-serif' },
-      xaxis: { gridcolor: p.gridColor },
-      yaxis: { gridcolor: p.gridColor, zerolinecolor: p.gridColor },
-      dragmode: false,
-      hovermode: 'closest'
-    };
+      const vertBarLayout = {
+        margin: { t: 20, b: 45, l: 40, r: 20 },
+        paper_bgcolor: p.paperBg,
+        plot_bgcolor: p.plotBg,
+        font: { color: p.fontColor, family: 'Segoe UI, system-ui, sans-serif' },
+        xaxis: { gridcolor: p.gridColor, tickangle: -20 },
+        yaxis: { gridcolor: p.gridColor, title: 'Activities' },
+        dragmode: false
+      };
 
-    Plotly.react('verticalBarChart', [vBarTrace], vBarLayout, plotlyConfig);
-  } else {
-    Plotly.purge('verticalBarChart');
+      Plotly.react('barChartMarketing', [vertBarTrace], vertBarLayout, plotlyConfig);
+    }
+  } catch (err) {
+    console.error("Error rendering barChartMarketing:", err);
   }
 }
 
-// --- Floating Hover Popover Detail Card ---
-let hoverCard = null;
-
+// --- Smart Viewport-Clamped Hover Detail Card ---
 function getOrCreateHoverCard() {
   if (!hoverCard) {
     hoverCard = document.createElement("div");
@@ -348,7 +430,6 @@ function showHoverCard(e, record) {
   const leads = record["Leads Achieved"] || 0;
   const marketing = record["Marketing Activity"] || 0;
   const dsa = record["DSA/Connectors"] || 0;
-  const promoters = record["Promoters/Builders"] || 0;
   const insight = record["Insight"] || "No additional notes provided.";
 
   card.innerHTML = `
@@ -395,14 +476,12 @@ function showHoverCard(e, record) {
   const scrollX = window.scrollX || window.pageXOffset || 0;
   const scrollY = window.scrollY || window.pageYOffset || 0;
 
-  // Horizontal positioning: prefer right of cursor, flip to left if offscreen
   let clientX = e.clientX + 15;
   if (clientX + cardWidth > viewportWidth - 15) {
     clientX = Math.max(10, e.clientX - cardWidth - 15);
   }
   const x = clientX + scrollX;
 
-  // Vertical positioning: clamp within visible viewport bounds
   let clientY = e.clientY - 60;
   if (clientY + cardHeight > viewportHeight - 15) {
     clientY = Math.max(10, viewportHeight - cardHeight - 15);
@@ -423,44 +502,97 @@ function hideHoverCard() {
   }
 }
 
-// --- Render Mini Table Records ---
+// --- Dynamic Table Header Builder ---
+function updateTableHeader() {
+  const headerRow = document.getElementById("tableHeaderRow");
+  if (!headerRow) return;
+
+  const headerMap = {
+    "S.No.": '<th class="text-center" style="width: 40px;">#</th>',
+    "Intern Name": '<th class="text-start">Intern Name</th>',
+    "Branch": '<th class="text-start">Branch</th>',
+    "Physical Visits": '<th class="text-center">Physical</th>',
+    "Telecalling": '<th class="text-center">Telecalls</th>',
+    "DSA/Connectors": '<th class="text-center">DSA</th>',
+    "Promoters/Builders": '<th class="text-center">Promoters</th>',
+    "Weekly Visits": '<th class="text-center">Weekly</th>',
+    "Leads Achieved": '<th class="text-center" style="width: 80px;">Leads</th>',
+    "Marketing Activity": '<th class="text-center">Marketing</th>',
+    "Actions": '<th class="text-end" style="width: 80px;">Actions</th>'
+  };
+
+  let thHtml = "";
+  if (!visibleColumns || visibleColumns.length === 0) {
+    visibleColumns = [...defaultColumns];
+  }
+
+  visibleColumns.forEach(colKey => {
+    if (headerMap[colKey]) thHtml += headerMap[colKey];
+  });
+  headerRow.innerHTML = thHtml;
+}
+
+// --- Render Table Records Dynamically ---
 function renderTable(records, columns) {
+  console.log("renderTable called with records count:", records ? records.length : 0);
   const tbody = document.getElementById("tableBody");
-  if (!tbody) return;
+  if (!tbody) {
+    console.error("tableBody element not found!");
+    return;
+  }
 
   hideHoverCard();
 
+  if (!visibleColumns || visibleColumns.length === 0) {
+    visibleColumns = [...defaultColumns];
+  }
+
+  updateTableHeader();
+
   if (!records || records.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">No matching records found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${visibleColumns.length}" class="text-center text-muted py-4">No matching records found.</td></tr>`;
     return;
   }
 
   let html = "";
   records.forEach((r, idx) => {
     const sNo = r["S.No."] || (idx + 1);
-    const leads = r["Leads Achieved"] || 0;
-    html += `
-      <tr data-sno="${sNo}" class="intern-row">
-        <td class="fw-bold text-muted">${sNo}</td>
-        <td class="fw-bold text-truncate" style="max-width: 130px;" title="${escapeHtml(r["Intern Name"] || "")}">
-          ${escapeHtml(r["Intern Name"] || "")}
-        </td>
-        <td class="text-truncate" style="max-width: 110px;" title="${escapeHtml(r["Branch"] || "")}">
-          <span class="badge bg-light text-dark border">${escapeHtml(r["Branch"] || "")}</span>
-        </td>
-        <td class="text-center fw-bold text-primary">${leads}</td>
-        <td class="text-end text-nowrap actions-cell" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();">
-          <div class="d-inline-flex align-items-center gap-1">
-            <button class="btn-action-edit" onclick="event.stopPropagation(); openEditModal(${sNo})" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();" title="Edit Record">
-              <i class="bi bi-pencil-square"></i>
-            </button>
-            <button class="btn-action-delete" onclick="event.stopPropagation(); confirmDelete(${sNo})" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();" title="Delete Record">
-              <i class="bi bi-trash-fill"></i>
-            </button>
-          </div>
-        </td>
-      </tr>
-    `;
+
+    html += `<tr data-sno="${sNo}" class="intern-row">`;
+
+    visibleColumns.forEach(colKey => {
+      if (colKey === "S.No.") {
+        html += `<td class="text-center fw-bold text-muted" style="width: 40px;">${sNo}</td>`;
+      } else if (colKey === "Intern Name") {
+        html += `
+          <td class="text-start intern-name-cell" title="${escapeHtml(r["Intern Name"] || "")}">
+            ${escapeHtml(r["Intern Name"] || "")}
+          </td>`;
+      } else if (colKey === "Branch") {
+        html += `
+          <td class="text-start branch-badge-cell" title="${escapeHtml(r["Branch"] || "")}">
+            <span class="badge bg-light text-dark border px-2 py-1">${escapeHtml(r["Branch"] || "")}</span>
+          </td>`;
+      } else if (colKey === "Actions") {
+        html += `
+          <td class="text-end text-nowrap actions-cell" style="width: 80px;" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();">
+            <div class="d-inline-flex align-items-center justify-content-end gap-1">
+              <button class="btn-action-edit" onclick="event.stopPropagation(); openEditModal(${sNo})" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();" title="Edit Record">
+                <i class="bi bi-pencil-square"></i>
+              </button>
+              <button class="btn-action-delete" onclick="event.stopPropagation(); confirmDelete(${sNo})" onmouseenter="event.stopPropagation(); hideHoverCard();" onmousemove="event.stopPropagation(); hideHoverCard();" title="Delete Record">
+                <i class="bi bi-trash-fill"></i>
+              </button>
+            </div>
+          </td>`;
+      } else {
+        const val = r[colKey] !== undefined ? r[colKey] : 0;
+        const isCenter = typeof val === 'number' || !isNaN(val);
+        html += `<td class="${isCenter ? 'text-center fw-semibold' : 'text-start'}">${escapeHtml(String(val))}</td>`;
+      }
+    });
+
+    html += `</tr>`;
   });
 
   tbody.innerHTML = html;
@@ -491,12 +623,11 @@ function renderTable(records, columns) {
 function populateModalForms(columns) {
   if (!columns || columns.length === 0) return;
 
-  // Add Form
   const addContainer = document.getElementById("addFormFields");
   if (addContainer && addContainer.children.length === 0) {
     let addHtml = "";
     columns.forEach(col => {
-      if (col === "S.No.") return; // Exclude S.No.
+      if (col === "S.No.") return;
 
       const isNumeric = col.includes("Visits") || col.includes("Calling") || col.includes("Connectors") || col.includes("Builders") || col.includes("Leads") || col.includes("Activity");
       const type = isNumeric ? "number" : "text";
@@ -514,7 +645,6 @@ function populateModalForms(columns) {
 
 // --- Event Listeners Initialization ---
 function initEventListeners() {
-  // Search Input Debouncing
   const searchInput = document.getElementById("searchInput");
   if (searchInput) {
     searchInput.addEventListener("input", () => {
@@ -525,7 +655,6 @@ function initEventListeners() {
     });
   }
 
-  // Sort Dropdown
   const sortSelect = document.getElementById("sortSelect");
   if (sortSelect) {
     sortSelect.addEventListener("change", (e) => {
@@ -534,7 +663,6 @@ function initEventListeners() {
     });
   }
 
-  // Sort Order Toggle Button
   const sortOrderBtn = document.getElementById("sortOrderBtn");
   if (sortOrderBtn) {
     sortOrderBtn.addEventListener("click", () => {
@@ -547,7 +675,6 @@ function initEventListeners() {
     });
   }
 
-  // Add Intern Form Submit
   const addForm = document.getElementById("addInternForm");
   if (addForm) {
     addForm.addEventListener("submit", async (e) => {
@@ -588,7 +715,6 @@ function initEventListeners() {
     });
   }
 
-  // Edit Intern Form Submit
   const editForm = document.getElementById("editInternForm");
   if (editForm) {
     editForm.addEventListener("submit", async (e) => {

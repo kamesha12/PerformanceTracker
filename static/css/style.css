@@ -390,7 +390,6 @@ body {
 /* Sticky Header */
 .table-enterprise {
   width: 100%;
-  table-layout: fixed;
   margin-bottom: 0;
   border-collapse: separate;
   border-spacing: 0;
@@ -429,6 +428,44 @@ body {
 
 .table-enterprise tbody tr:hover {
   background-color: var(--table-row-hover);
+}
+
+/* --- Larger Typography for Intern Name and Branch (Place) --- */
+.intern-name-cell {
+  font-size: 1.05rem !important;
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  letter-spacing: 0.2px;
+}
+
+[data-theme="dark"] .intern-name-cell {
+  color: #38bdf8 !important;
+}
+
+.branch-badge-cell {
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+}
+
+.branch-badge-cell .badge {
+  font-size: 0.88rem !important;
+  padding: 0.35rem 0.7rem !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  letter-spacing: 0.3px;
+}
+
+/* --- Column Selection Styling --- */
+.table-col-selected {
+  background-color: rgba(13, 110, 253, 0.12) !important;
+}
+th.col-header-selected {
+  background-color: rgba(13, 110, 253, 0.22) !important;
+  color: var(--accent-primary) !important;
+}
+.col-select-cb {
+  cursor: pointer;
+  vertical-align: middle;
 }
 
 /* --- Floating Hover Popover Detail Card --- */
